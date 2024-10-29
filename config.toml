@@ -1,0 +1,4 @@
+hostname = "my_emulator"
+filesystem_path = "/Users/andrey/Documents/Config/filesystem.tar"
+log_file = "/Users/andrey/Documents/Config/emulator_log.json"
+startup_script = "/Users/andrey/Documents/Config/startup.sh"

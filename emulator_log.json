@@ -1,0 +1,22 @@
+[
+    {
+        "timestamp": "2024-10-29T08:53:37.318992",
+        "action": "ls"
+    },
+    {
+        "timestamp": "2024-10-29T08:53:41.206720",
+        "action": "cd dir1"
+    },
+    {
+        "timestamp": "2024-10-29T08:53:42.833233",
+        "action": "ls"
+    },
+    {
+        "timestamp": "2024-10-29T08:53:49.734771",
+        "action": "tac file1.txt"
+    },
+    {
+        "timestamp": "2024-10-29T08:54:35.868456",
+        "action": "exit"
+    }
+]
