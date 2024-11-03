@@ -4,7 +4,7 @@ import sys
 import json
 import time
 import toml
-import posixpath  # Используем posixpath для работы с путями в формате POSIX
+import posixpath # Используем posixpath для работы с путями в формате POSIX
 from datetime import datetime
 
 class ShellEmulator:
@@ -19,11 +19,9 @@ class ShellEmulator:
         self.hostname = self.config.get('hostname', 'emulator')
 
     def load_config(self, config_path):
-        print(f"Загрузка конфигурации из файла: {config_path}")
         try:
             with open(config_path, 'r') as f:
                 config = toml.load(f)
-            print(f"Конфигурация успешно загружена: {config}")
             return config
         except Exception as e:
             print(f"Ошибка загрузки конфигурации: {e}")
@@ -31,14 +29,14 @@ class ShellEmulator:
 
     def load_filesystem(self):
         fs_path = self.config.get('filesystem_path', 'filesystem.tar')
-        print(f"Загрузка файловой системы из архива: {fs_path}")
         try:
             self.tar = tarfile.open(fs_path, 'r')
-            print("Файловая система успешно загружена.")
-            # Вывод содержимого архива
-            print("Содержимое архива файловой системы в эмуляторе:")
+            # Инициализация словаря владельцев файлов
+            self.file_owners = {}
+            # Инициализация владельцев файлов по умолчанию
             for member in self.tar.getmembers():
-                print(f"- {member.name} (isdir: {member.isdir()})")
+                path_in_tar = posixpath.normpath(member.name)
+                self.file_owners[path_in_tar] = 'root'  # Владелец по умолчанию
         except Exception as e:
             print(f"Ошибка загрузки архива файловой системы: {e}")
             sys.exit(1)
@@ -46,13 +44,10 @@ class ShellEmulator:
     def load_startup_script(self):
         script_path = self.config.get('startup_script', '')
         if script_path and os.path.exists(script_path):
-            print(f"Загрузка стартового скрипта из файла: {script_path}")
             with open(script_path, 'r') as f:
                 self.startup_commands = [line.strip() for line in f if line.strip()]
-            print(f"Стартовый скрипт успешно загружен. Команды: {self.startup_commands}")
         else:
             self.startup_commands = []
-            print("Стартовый скрипт не найден или не указан.")
 
     def log_command(self, command):
         entry = {
@@ -72,28 +67,50 @@ class ShellEmulator:
             return posixpath.normpath(posixpath.join(self.current_path, path))
 
     def cmd_ls(self, args):
-        path = self.get_absolute_path(args[0]) if args else self.current_path
-        path_in_tar = path.strip('/')
+        show_long = False
+        paths = []
 
-        # Нормализация пути
-        path_in_tar = posixpath.normpath(path_in_tar)
-        if path_in_tar == '.':
-            path_in_tar = ''
+        # Разбор аргументов
+        for arg in args:
+            if arg == '-l':
+                show_long = True
+            else:
+                paths.append(arg)
 
-        entries = set()
-        for member in self.tar.getmembers():
-            member_path = posixpath.normpath(member.name)
-            member_dirname = posixpath.dirname(member_path)
-            if member_dirname == path_in_tar:
-                member_basename = posixpath.basename(member_path)
-                if member_basename not in ('.', ''):
-                    entries.add(member_basename)
+        # Если путь не указан, используем текущий каталог
+        if not paths:
+            paths = [self.current_path]
 
-        if entries:
-            for entry in sorted(entries):
-                print(entry)
-        else:
-            print(f"ls: {path}: Нет такого файла или каталога")
+        for path in paths:
+            abs_path = self.get_absolute_path(path)
+            path_in_tar = abs_path.strip('/')
+            path_in_tar = posixpath.normpath(path_in_tar)
+            if path_in_tar == '.':
+                path_in_tar = ''
+
+            entries = []
+            for member in self.tar.getmembers():
+                member_path = posixpath.normpath(member.name)
+                member_dirname = posixpath.dirname(member_path)
+                if member_dirname == path_in_tar:
+                    member_basename = posixpath.basename(member_path)
+                    if member_basename not in ('.', ''):
+                        entries.append((member_basename, member))
+
+            if entries:
+                for entry_name, member in sorted(entries):
+                    if show_long:
+                        # Формирование строки с информацией о файле
+                        mode = 'd' if member.isdir() else '-'
+                        permissions = 'rwxr-xr-x' if member.isdir() else 'rw-r--r--'
+                        owner = self.file_owners.get(posixpath.normpath(member.name), 'root')
+                        size = member.size
+                        mtime = time.strftime('%b %d %H:%M', time.localtime(member.mtime))
+                        print(f"{mode}{permissions} 1 {owner} {owner} {size} {mtime} {entry_name}")
+                    else:
+                        print(entry_name)
+            else:
+                print(f"ls: {path}: Нет такого файла или каталога")
 
     def cmd_cd(self, args):
         if not args:
@@ -101,12 +118,9 @@ class ShellEmulator:
             return
         path = self.get_absolute_path(args[0])
         path_in_tar = path.strip('/')
-
-        # Нормализация пути
         path_in_tar = posixpath.normpath(path_in_tar)
         if path_in_tar == '.':
             path_in_tar = ''
-
         for member in self.tar.getmembers():
             member_path = posixpath.normpath(member.name).rstrip('/')
             if member_path == path_in_tar and member.isdir():
@@ -118,28 +132,28 @@ class ShellEmulator:
         if not args:
             print("tac: отсутствует аргумент")
             return
-
         path = self.get_absolute_path(args[0])
         path_in_tar = path.strip('/')
         path_in_tar = posixpath.normpath(path_in_tar)
-
         for member in self.tar.getmembers():
             member_path = posixpath.normpath(member.name)
             if member_path == path_in_tar:
                 if member.isdir():
-                    print(f"tac: невозможно открыть '{args[0]}' для чтения: Это каталог")
+                    print(f"tac: {args[0]}: Это каталог")
                     return
                 f = self.tar.extractfile(member)
                 if f:
-                    lines = f.read().decode('utf-8').splitlines()
-                    for line in reversed(lines):
-                        print(line)
+                    try:
+                        lines = f.read().decode('utf-8').splitlines()
+                        for line in reversed(lines):
+                            print(line)
+                    except UnicodeDecodeError:
+                        print(f"tac: {args[0]}: невозможно декодировать файл")
                     return
                 else:
-                    print(f"tac: невозможно открыть '{args[0]}' для чтения: Нет такого файла или каталога")
+                    print(f"tac: {args[0]}: Нет такого файла или каталога")
                     return
-
-        print(f"tac: невозможно открыть '{args[0]}' для чтения: Нет такого файла или каталога")
+        print(f"tac: {args[0]}: Нет такого файла или каталога")
 
     def cmd_chown(self, args):
         if len(args) < 2:
@@ -149,13 +163,16 @@ class ShellEmulator:
         path = self.get_absolute_path(args[1])
         path_in_tar = path.strip('/')
         path_in_tar = posixpath.normpath(path_in_tar)
+        found = False
         for member in self.tar.getmembers():
             member_path = posixpath.normpath(member.name)
             if member_path == path_in_tar:
+                self.file_owners[member_path] = owner
                 print(f"Изменен владелец '{args[1]}' на '{owner}'")
-                # Здесь можно добавить логику изменения владельца в метаданных, если требуется
-                return
-        print(f"chown: невозможно изменить владельца '{args[1]}': Нет такого файла или каталога")
+                found = True
+                break
+        if not found:
+            print(f"chown: невозможно изменить владельца '{args[1]}': Нет такого файла или каталога")
 
     def cmd_uptime(self):
         elapsed_time = int(time.time() - self.start_time)
@@ -189,14 +206,14 @@ class ShellEmulator:
         elif command == 'exit':
             self.cmd_exit()
         else:
-            print(f"Команда не найдена: {command}")
+            print(f"{command}: команда не найдена")
 
     def run(self):
         # Выполнение команд из стартового скрипта
         for cmd in self.startup_commands:
             self.execute_command(cmd)
 
-        # Основной цикл эмулятора
+        # Основной цикл
         while True:
             try:
                 prompt = f"{self.hostname}:{self.current_path}$ "
@@ -214,5 +231,4 @@ if __name__ == "__main__":
         sys.exit(1)
     config_path = sys.argv[1]
     emulator = ShellEmulator(config_path)
-    print("Эмулятор успешно инициализирован.")
     emulator.run()

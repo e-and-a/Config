@@ -15,7 +15,7 @@
 * Загрузка файловой системы из архива tar: Эмулятор читает файловую систему из указанного архива и позволяет просматривать и навигировать по ней.
 
 * Поддержка команд оболочки:
-> * ls [path]: отображает содержимое указанного каталога.
+> * ls [options] [path]: отображает содержимое указанного каталога.
 > * cd [path]: изменяет текущий каталог на указанный.
 > * tac [file]: выводит содержимое указанного файла в обратном порядке строк.
 > * chown [owner] [file]: изменяет владельца указанного файла на указанного пользователя (эмуляция).
@@ -39,14 +39,21 @@ startup_script = "startup.sh"
 
 ## Описание команд ##
 
-> ls [path]
+> ls [options] [path]
 Отображает содержимое указанного каталога. Если путь не указан, отображает содержимое текущего каталога.
+> Опции:
+-l: выводит подробную информацию о файлах в формате длинного списка, включая права доступа, владельца, размер и дату изменения.
 
 ** Пример: **
 ```
 my_emulator:/dir1$ ls
 file1.txt
 test_file.txt
+
+my_emulator:/dir1$ ls -l
+-rw-r--r-- 1 root      root      34 Oct 29 08:23 file1.txt
+-rw-r--r-- 1 root      root      51 Oct 29 08:23 test_file.txt
+
 ```
 
 > cd [path] **
@@ -68,12 +75,17 @@ my_emulator:/dir1$ tac test_file.txt
 ```
 
 > chown [owner] [file]
-Изменяет владельца указанного файла на указанного пользователя (эмуляция).
+Изменяет владельца указанного файла или каталога на указанного пользователя. Изменения сохраняются в эмуляторе и отображаются при выводе списка файлов с помощью ls -l.
 
 ** Пример: **
 ```
 my_emulator:/dir1$ chown new_owner file1.txt
 Изменен владелец 'file1.txt' на 'new_owner'
+
+my_emulator:/dir1$ ls -l
+-rw-r--r-- 1 new_owner new_owner 34 Oct 29 08:23 file1.txt
+-rw-r--r-- 1 root      root      51 Oct 29 08:23 test_file.txt
+
 ```
 
 > uptime
@@ -130,8 +142,9 @@ startup_script = "startup.sh"
 
 >> 4. (Опционально) Создайте стартовый скрипт startup.sh:
 ```
-echo "Добро пожаловать в эмулятор!"
-ls
+# Стартовый скрипт для эмулятора
+cd dir1
+ls -l
 ```
 
 >> 5. Установите необходимые зависимости:
@@ -147,35 +160,20 @@ python emulator.py config.toml
 ## Пример сеанса работы ##
 ```
 $ python emulator.py config.toml
-Загрузка конфигурации из файла: config.toml
-Конфигурация успешно загружена: {'hostname': 'my_emulator', 'filesystem_path': 'filesystem.tar', 'log_file': 'emulator_log.json', 'startup_script': 'startup.sh'}
-Загрузка файловой системы из архива: filesystem.tar
-Файловая система успешно загружена.
-Содержимое архива файловой системы в эмуляторе:
-- . (isdir: True)
-- ./dir2 (isdir: True)
-- ./dir1 (isdir: True)
-- ./dir1/file1.txt (isdir: False)
-- ./dir1/test_file.txt (isdir: False)
-- ./dir2/file2.txt (isdir: False)
-- ./dir2/another_file.txt (isdir: False)
-Загрузка стартового скрипта из файла: startup.sh
-Стартовый скрипт успешно загружен. Команды: ['echo "Добро пожаловать в эмулятор!"', 'ls']
-Эмулятор успешно инициализирован.
-Добро пожаловать в эмулятор!
 dir1
 dir2
-my_emulator:/$ ls
-dir1
-dir2
-my_emulator:/$ cd dir1
-my_emulator:/dir1$ ls
-file1.txt
-test_file.txt
-my_emulator:/dir1$ tac test_file.txt
-Содержимое тестового файла
+my_emulator:/dir1$ ls -l
+-rw-r--r-- 1 root root 34 Oct 29 08:23 file1.txt
+-rw-r--r-- 1 root root 51 Oct 29 08:23 test_file.txt
 my_emulator:/dir1$ chown new_owner file1.txt
 Изменен владелец 'file1.txt' на 'new_owner'
+my_emulator:/dir1$ ls -l
+-rw-r--r-- 1 new_owner new_owner 34 Oct 29 08:23 file1.txt
+-rw-r--r-- 1 root      root      51 Oct 29 08:23 test_file.txt
+my_emulator:/dir1$ tac test_file.txt
+Третья строка файла
+Вторая строка файла
+Первая строка файла
 my_emulator:/dir1$ uptime
 Время работы: 42 секунд
 my_emulator:/dir1$ exit
@@ -191,26 +189,29 @@ pip install pytest
 Создайте файл test_emulator.py с тестами:
 ```
 import pytest
+import tarfile
 from emulator import ShellEmulator
+import os
+import posixpath
 
 @pytest.fixture
 def emulator(tmp_path):
     # Создаём тестовый архив файловой системы
-    (tmp_path / "dir1").mkdir()
-    (tmp_path / "dir1" / "file1.txt").write_text("Test file 1")
-    (tmp_path / "dir2").mkdir()
-    (tmp_path / "dir2" / "file2.txt").write_text("Test file 2")
+    (tmp_path / "vfs" / "dir1").mkdir(parents=True)
+    (tmp_path / "vfs" / "dir1" / "file1.txt").write_text("Test file 1")
+    (tmp_path / "vfs" / "dir2").mkdir()
+    (tmp_path / "vfs" / "dir2" / "file2.txt").write_text("Test file 2")
     fs_tar = tmp_path / "filesystem.tar"
     with tarfile.open(fs_tar, "w") as tar:
-        tar.add(tmp_path / "dir1", arcname="dir1")
-        tar.add(tmp_path / "dir2", arcname="dir2")
+        tar.add((tmp_path / "vfs" / "dir1").as_posix(), arcname="dir1")
+        tar.add((tmp_path / "vfs" / "dir2").as_posix(), arcname="dir2")
     # Создаём конфигурационный файл
     config_toml = tmp_path / "config.toml"
     config_toml.write_text(f"""
-    hostname = "test_emulator"
-    filesystem_path = "{fs_tar}"
-    log_file = "{tmp_path / 'emulator_log.json'}"
-    """)
+hostname = "test_emulator"
+filesystem_path = "{fs_tar}"
+log_file = "{tmp_path / 'emulator_log.json'}"
+""")
     return ShellEmulator(str(config_toml))
 
 def test_ls_root(emulator, capsys):
@@ -219,23 +220,39 @@ def test_ls_root(emulator, capsys):
     assert 'dir1' in captured.out
     assert 'dir2' in captured.out
 
+def test_ls_long_format(emulator, capsys):
+    emulator.execute_command('ls -l')
+    captured = capsys.readouterr()
+    assert 'drwxr-xr-x 1 root root' in captured.out
+    assert 'dir1' in captured.out
+    assert 'dir2' in captured.out
+
+def test_chown_and_ls(emulator, capsys):
+    emulator.execute_command('chown alice dir1')
+    emulator.execute_command('ls -l')
+    captured = capsys.readouterr()
+    assert 'dir1' in captured.out
+    assert 'alice alice' in captured.out  # Владелец изменён на alice
+
 def test_cd_and_ls(emulator, capsys):
     emulator.execute_command('cd dir1')
     emulator.execute_command('ls')
     captured = capsys.readouterr()
     assert 'file1.txt' in captured.out
 
+def test_chown_file(emulator, capsys):
+    emulator.execute_command('cd dir1')
+    emulator.execute_command('chown bob file1.txt')
+    emulator.execute_command('ls -l')
+    captured = capsys.readouterr()
+    assert 'file1.txt' in captured.out
+    assert 'bob bob' in captured.out
+
 def test_tac(emulator, capsys):
     emulator.execute_command('cd dir1')
     emulator.execute_command('tac file1.txt')
     captured = capsys.readouterr()
     assert 'Test file 1' in captured.out
-
-def test_chown(emulator, capsys):
-    emulator.execute_command('cd dir1')
-    emulator.execute_command('chown user file1.txt')
-    captured = capsys.readouterr()
-    assert "Изменен владелец 'file1.txt' на 'user'" in captured.out
 
 def test_uptime(emulator, capsys):
     emulator.execute_command('uptime')
@@ -250,18 +267,20 @@ pytest test_emulator.py -v
 ## Вывод: ##
 ```
 ================================================= test session starts =================================================
-platform darwin -- Python 3.8.5, pytest-6.2.2, py-1.10.0, pluggy-0.13.1 -- /usr/local/bin/python3
+platform darwin -- Python 3.x.x, pytest-x.x.x, py-x.x.x, pluggy-x.x.x
 cachedir: .pytest_cache
-rootdir: /Users/username/project
-collected 5 items                                                                                                     
+rootdir: /path/to/project
+collected 7 items                                                                                                    
 
-test_emulator.py::test_ls_root PASSED                                                                           [ 20%]
-test_emulator.py::test_cd_and_ls PASSED                                                                          [ 40%]
-test_emulator.py::test_tac PASSED                                                                                [ 60%]
-test_emulator.py::test_chown PASSED                                                                              [ 80%]
-test_emulator.py::test_uptime PASSED                                                                             [100%]
+test_emulator.py::test_ls_root PASSED                                                                          [ 14%]
+test_emulator.py::test_ls_long_format PASSED                                                                   [ 28%]
+test_emulator.py::test_chown_and_ls PASSED                                                                     [ 42%]
+test_emulator.py::test_cd_and_ls PASSED                                                                        [ 57%]
+test_emulator.py::test_chown_file PASSED                                                                       [ 71%]
+test_emulator.py::test_tac PASSED                                                                              [ 85%]
+test_emulator.py::test_uptime PASSED                                                                           [100%]
 
-================================================= 5 passed in 0.50s ==================================================
+================================================= 7 passed in 0.60s ==================================================
 ```
 ---
 Ссылка на git-репозиторий: <https://github.com/e-and-a/Config>
